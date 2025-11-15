@@ -1,5 +1,6 @@
 # Config files (keep example, ignore actual)
-config/config.json
+config/*.json
+!config/config.example.json
 
 # Logs
 *.log

@@ -82,6 +82,146 @@ def detect_header_row(df, max_rows=20):
     return 8
 
 
+def process_repeat_groups(df_raw, df_main):
+    """
+    Process repeat groups (FOCAL_POINTS and FIGURES_COMMUNITY) from raw data.
+    
+    Args:
+        df_raw (pd.DataFrame): Original raw data with all columns
+        df_main (pd.DataFrame): Main transformed data with UUIDs
+    
+    Returns:
+        tuple: (df_focal_points, df_figures_community)
+    """
+    
+    # Get UUIDs from main data
+    uuids = df_main['_submission__uuid'].tolist()
+    
+    # FOCAL_POINTS columns
+    focal_points_cols = ['name', 'email', 'phone', 'job_title']
+    
+    # FIGURES_COMMUNITY columns (all the location and population data)
+    figures_community_cols = [
+        'quantity_resource',
+        'budget_resource',
+        'start_date',
+        'end_date',
+        'parish',
+        'community',
+        'location_type',
+        'location_type_other',
+        'total_population_targeted',
+        'total_population_reached',
+        'category_of_people',
+        'category_of_people_specify',
+        'idp_household_targeted',
+        'idp_household_reached',
+        'idp_people_targeted',
+        'idp_women_targeted',
+        'idp_men_targeted',
+        'idp_children_targeted',
+        'idp_people_reached',
+        'idp_women_reached',
+        'idp_men_reached',
+        'idp_children_reached',
+        'people_hosting_household_targeted',
+        'people_hosting_household_reached',
+        'hosting_people_targeted',
+        'hosting_women_targeted',
+        'hosting_men_targeted',
+        'hosting_children_targeted',
+        'hosting_people_reached',
+        'hosting_women_reached',
+        'hosting_men_reached',
+        'hosting_children_reached',
+        'non_displaced_household_targeted',
+        'non_displaced_household_reached',
+        'ndp_people_targeted',
+        'ndp_women_targeted',
+        'ndp_men_targeted',
+        'ndp_children_targeted',
+        'ndp_people_reached',
+        'ndp_women_reached',
+        'ndp_men_reached',
+        'ndp_children_reached',
+        'other_population_household_targeted',
+        'other_population_household_reached',
+        'other_people_targeted',
+        'other_women_targeted',
+        'other_men_targeted',
+        'other_children_targeted',
+        'other_people_reached',
+        'other_women_reached',
+        'other_men_reached',
+        'other_children_reached'
+    ]
+    
+    # Process FOCAL_POINTS
+    df_focal_points = None
+    focal_points_available = [col for col in focal_points_cols if col in df_raw.columns]
+    
+    if focal_points_available:
+        focal_points_data = []
+        for idx, row in df_raw.iterrows():
+            if idx < len(uuids):
+                uuid = uuids[idx]
+                # Create entry with all available columns
+                focal_entry = {}
+                for col in focal_points_available:
+                    focal_entry[col] = row[col] if pd.notna(row[col]) else None
+                
+                # Only add if there's at least email
+                if focal_entry.get('email'):
+                    focal_entry['_submission__uuid'] = uuid
+                    focal_points_data.append(focal_entry)
+        
+        if focal_points_data:
+            df_focal_points = pd.DataFrame(focal_points_data)
+            # Ensure proper column order
+            cols = [col for col in focal_points_available if col in df_focal_points.columns]
+            df_focal_points = df_focal_points[cols + ['_submission__uuid']]
+            print(f"Processed FOCAL_POINTS: {len(df_focal_points)} entries")
+    
+    # Process FIGURES_COMMUNITY
+    df_figures_community = None
+    figures_available = [col for col in figures_community_cols if col in df_raw.columns]
+    
+    if figures_available:
+        figures_data = []
+        for idx, row in df_raw.iterrows():
+            if idx < len(uuids):
+                uuid = uuids[idx]
+                # Create entry with all available columns
+                community_entry = {}
+                has_data = False
+                
+                for col in figures_available:
+                    value = row[col] if pd.notna(row[col]) else None
+                    # Format date columns to yyyy-mm-dd
+                    if value is not None and col in ['start_date', 'end_date']:
+                        if isinstance(value, pd.Timestamp) or isinstance(value, datetime):
+                            value = value.strftime('%Y-%m-%d')
+                    community_entry[col] = value
+                    # Check if this row has any meaningful data
+                    if value is not None and col in ['parish', 'community', 'quantity_resource', 
+                                                       'category_of_people', 'location_type']:
+                        has_data = True
+                
+                # Only add if there's at least some community data
+                if has_data:
+                    community_entry['_submission__uuid'] = uuid
+                    figures_data.append(community_entry)
+        
+        if figures_data:
+            df_figures_community = pd.DataFrame(figures_data)
+            # Ensure proper column order - put _submission__uuid last
+            cols = [col for col in figures_available if col in df_figures_community.columns]
+            df_figures_community = df_figures_community[cols + ['_submission__uuid']]
+            print(f"Processed FIGURES_COMMUNITY: {len(df_figures_community)} entries")
+    
+    return df_focal_points, df_figures_community
+
+
 def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entry', header_row=None):
     """
     Transform 5W offline form data to Kobo import format.
@@ -151,7 +291,10 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     # Generate UUID for each row
     df_kobo['_submission__uuid'] = [generate_uuid() for _ in range(len(df_kobo))]
     
-    print(f"Transformed data: {len(df_kobo)} rows, {len(df_kobo.columns)} columns")
+    print(f"Transformed main data: {len(df_kobo)} rows, {len(df_kobo.columns)} columns")
+    
+    # Process repeat groups: FOCAL_POINTS and FIGURES_COMMUNITY
+    df_focal_points, df_figures_community = process_repeat_groups(df, df_kobo)
     
     # Determine output file path
     if output_file is None:
@@ -167,11 +310,22 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     
-    # Save to Excel
+    # Save to Excel with multiple sheets
     print(f"Saving transformed data to: {output_file}")
-    df_kobo.to_excel(output_file, index=False)
+    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        # Main sheet
+        df_kobo.to_excel(writer, sheet_name='Sheet1', index=False)
+        
+        # Repeat group sheets
+        if df_focal_points is not None and len(df_focal_points) > 0:
+            df_focal_points.to_excel(writer, sheet_name='FOCAL_POINTS', index=False)
+            print(f"  ✓ FOCAL_POINTS: {len(df_focal_points)} rows")
+        
+        if df_figures_community is not None and len(df_figures_community) > 0:
+            df_figures_community.to_excel(writer, sheet_name='FIGURES_COMMUNITY', index=False)
+            print(f"  ✓ FIGURES_COMMUNITY: {len(df_figures_community)} rows")
     
-    print(f"✓ Successfully transformed {len(df_kobo)} records")
+    print(f"✓ Successfully transformed {len(df_kobo)} main records")
     print(f"✓ Output file: {output_file}")
     
     return output_file
