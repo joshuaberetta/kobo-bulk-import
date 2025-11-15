@@ -1,5 +1,22 @@
-config.json
+# Config files (keep example, ignore actual)
+config/config.json
+
+# Logs
 *.log
+
+# Output directories
 xml_output/
+test_*/
+
+# Data files
 *.xlsx
+data/*.xlsx
+!data/.gitkeep
+
+# Environment
 *.env
+venv/
+__pycache__/
+
+# OS files
+.DS_Store
