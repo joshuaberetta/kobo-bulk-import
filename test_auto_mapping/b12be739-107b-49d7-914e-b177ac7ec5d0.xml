@@ -1,0 +1,48 @@
+<aiBgJcvz5AFHB54fKpG2y5 id="aiBgJcvz5AFHB54fKpG2y5" version="8 (2025-11-15 13:01:38)">
+    <today>2025-11-07</today>
+    <org_details>
+        <ORAGANIZATION_LEAD>
+            <LeadOrganization_type>INTERNATIONAL_NGO</LeadOrganization_type>
+            <LeadOrganization_name>ORG_CORE</LeadOrganization_name>
+            <LeadOrganization_name_2/>
+            <same_as_lead>yes</same_as_lead>
+        </ORAGANIZATION_LEAD>
+        <ORAGANIZATION_IMPLEMENTING>
+            <ImplementingOrganization_type/>
+            <ImplementingOrganization_name/>
+        </ORAGANIZATION_IMPLEMENTING>
+        <FOCAL_POINTS>
+            <email>jason.mckay@coreresponse.org</email>
+        </FOCAL_POINTS>
+    </org_details>
+    <RESPONSES>
+        <sector>HEALTH</sector>
+        <activity_type>mobile_clinic_outreach_services</activity_type>
+        <comments>Medical Assessments of local communities and referrals to clinics currently operating for case encounters</comments>
+        <resource_type>assessments</resource_type>
+        <resource_unit_type>observation</resource_unit_type>
+        <resource_unit_type_other>Medical Needs Assessments</resource_unit_type_other>
+        <FIGURES_COMMUNITY>
+            <parish>MANCHESTER</parish>
+            <community>Alligator Pond</community>
+            <location_type>General Community</location_type>
+            <location_type_other>Church</location_type_other>
+            <quantities>
+                <quantity_resource>45</quantity_resource>
+            </quantities>
+            <people>
+                <category_of_people>Other</category_of_people>
+                <other_population>
+                    <other_people_targeted>47</other_people_targeted>
+                    <other_women_targeted>32</other_women_targeted>
+                    <other_men_targeted>15</other_men_targeted>
+                    <other_children_targeted>0</other_children_targeted>
+                </other_population>
+            </people>
+        </FIGURES_COMMUNITY>
+    </RESPONSES>
+    <__version__>vdjkkW3B5b9mKHZVoDPYbA</__version__>
+    <meta>
+        <instanceID>uuid:b12be739-107b-49d7-914e-b177ac7ec5d0</instanceID>
+    </meta>
+</aiBgJcvz5AFHB54fKpG2y5>

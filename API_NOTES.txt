@@ -1,0 +1,169 @@
+================================================================================
+                KOBO API SUBMISSION - IMPORTANT NOTES
+================================================================================
+
+CORRECT API ENDPOINT
+================================================================================
+
+KoboToolbox requires submissions to use the v1 submissions endpoint:
+
+  URL: https://kc.kobotoolbox.org/api/v1/submissions
+
+NOT the v2 endpoint mentioned in some older documentation.
+
+Other servers:
+  - EU: https://eu.kobotoolbox.org/api/v1/submissions
+  - Humanitarian: https://kobo.humanitarianresponse.info/api/v1/submissions
+
+
+SUBMISSION FORMAT
+================================================================================
+
+KoboToolbox expects XML as a multipart file upload, NOT as request body:
+
+CORRECT FORMAT:
+```python
+import io
+import requests
+
+# Prepare file tuple
+file_tuple = (uuid, io.BytesIO(xml_bytes))
+files = {'xml_submission_file': file_tuple}
+
+# Create request
+req = requests.Request(
+    method='POST',
+    url='https://kc.kobotoolbox.org/api/v1/submissions',
+    files=files,
+    headers={'Authorization': f'Token {api_token}'}
+)
+
+# Send request
+session = requests.Session()
+response = session.send(req.prepare())
+```
+
+INCORRECT FORMAT (don't use):
+```python
+# ✗ This won't work for v1 API
+response = requests.post(
+    url,
+    data=xml_string,
+    headers={'Content-Type': 'application/xml'}
+)
+```
+
+
+KEY POINTS
+================================================================================
+
+1. USE v1 API, not v2
+   ✓ /api/v1/submissions
+   ✗ /api/v2/assets/{form_id}/data.xml
+
+2. Send as FILE UPLOAD, not as body
+   ✓ files={'xml_submission_file': file_tuple}
+   ✗ data=xml_string
+
+3. File tuple format: (uuid, io.BytesIO(xml_bytes))
+   - First element: UUID string
+   - Second element: BytesIO object with XML bytes
+
+4. Success status codes: 200 or 201
+   Both indicate successful submission
+
+
+AUTHENTICATION
+================================================================================
+
+Get your token from: https://kc.kobotoolbox.org/token/
+
+Use in headers:
+  {'Authorization': f'Token {your_token}'}
+
+Keep your token secret!
+
+
+UPDATED SCRIPTS
+================================================================================
+
+All scripts in this toolkit have been updated to use the correct API:
+
+  ✓ simple_submit.py - Standalone submission script
+  ✓ submit_to_kobo.py - Helper with batch processing
+  ✓ complete_example.py - Full workflow example
+  ✓ end_to_end_example.py - Complete integration
+
+Use any of these for submitting your XML to KoboToolbox.
+
+
+TESTING
+================================================================================
+
+Before submitting real data:
+
+1. Use --dry-run flag to test conversion:
+   python submit_to_kobo.py ... --dry-run
+
+2. Check generated XML files manually
+
+3. Submit one test submission first
+
+4. Verify in KoboToolbox web interface
+
+5. Then submit the rest
+
+
+TROUBLESHOOTING
+================================================================================
+
+HTTP 401 - Unauthorized
+  → Check your API token is correct
+  → Get new token from /token/ page
+
+HTTP 403 - Forbidden  
+  → Verify you have permission to submit to this form
+  → Check form is not locked/archived
+
+HTTP 404 - Not Found
+  → Check the API URL is correct for your server
+  → Ensure using /api/v1/submissions endpoint
+
+HTTP 400 - Bad Request
+  → Check XML structure is valid
+  → Verify form ID in XML matches your form
+  → Check all required fields are present
+
+
+EXAMPLE USAGE
+================================================================================
+
+Simple one-liner:
+```python
+from simple_submit import submit_data
+
+status, uuid = submit_data(xml_string, uuid, 
+    url='https://kc.kobotoolbox.org/api/v1/submissions',
+    token='your_token')
+```
+
+Full workflow:
+```python
+from excel_to_kobo_xml import ExcelToKoboXML
+from simple_submit import submit_multiple
+
+# Convert
+converter = ExcelToKoboXML('data.xlsx', 'mapping.json')
+submissions = converter.convert_all()
+
+# Submit
+results = submit_multiple(submissions, 
+    url='https://kc.kobotoolbox.org/api/v1/submissions',
+    token='your_token')
+
+print(f"Success: {len(results['successful'])}")
+print(f"Failed: {len(results['failed'])}")
+```
+
+
+================================================================================

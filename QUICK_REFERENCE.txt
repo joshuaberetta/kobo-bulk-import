@@ -1,0 +1,148 @@
+================================================================================
+                        QUICK REFERENCE CARD
+================================================================================
+
+CONVERT EXCEL TO XML
+================================================================================
+python excel_to_kobo_xml.py data.xlsx mapping.json output/
+
+Or in Python:
+    from excel_to_kobo_xml import ExcelToKoboXML
+    converter = ExcelToKoboXML('data.xlsx', 'mapping.json')
+    submissions = converter.convert_all(output_dir='output')
+
+
+SUBMIT TO KOBO (Simple)
+================================================================================
+python simple_submit.py --file submission.xml --token YOUR_TOKEN
+
+Or in Python:
+    from simple_submit import submit_data
+    status, uuid = submit_data(xml_string, uuid,
+        url='https://kc.kobotoolbox.org/api/v1/submissions',
+        token='YOUR_TOKEN')
+
+
+SUBMIT DIRECTORY OF XML FILES
+================================================================================
+python simple_submit.py --dir ./output --token YOUR_TOKEN
+
+Or in Python:
+    from simple_submit import submit_from_directory
+    results = submit_from_directory('./output',
+        url='https://kc.kobotoolbox.org/api/v1/submissions',
+        token='YOUR_TOKEN')
+
+
+COMPLETE WORKFLOW (Convert + Submit)
+================================================================================
+python end_to_end_example.py
+
+Customize config in the file:
+    CONFIG['excel_file'] = 'your_data.xlsx'
+    CONFIG['api_token'] = 'YOUR_TOKEN'
+    CONFIG['dry_run'] = False
+
+
+GENERATE MAPPING FROM XLSFORM
+================================================================================
+python generate_mapping.py form.xlsx mapping.json
+
+
+API ENDPOINTS
+================================================================================
+Standard:      https://kc.kobotoolbox.org/api/v1/submissions
+EU:            https://eu.kobotoolbox.org/api/v1/submissions
+Humanitarian:  https://kobo.humanitarianresponse.info/api/v1/submissions
+
+
+GET API TOKEN
+================================================================================
+https://kc.kobotoolbox.org/token/
+
+
+SUBMISSION CODE TEMPLATE
+================================================================================
+import io
+import requests
+
+xml_bytes = xml_string.encode('utf-8')
+file_tuple = (uuid, io.BytesIO(xml_bytes))
+files = {'xml_submission_file': file_tuple}
+
+req = requests.Request(
+    method='POST',
+    url='https://kc.kobotoolbox.org/api/v1/submissions',
+    files=files,
+    headers={'Authorization': f'Token {token}'}
+)
+
+session = requests.Session()
+response = session.send(req.prepare())
+
+# Success: status_code in [200, 201]
+
+
+EXCEL STRUCTURE REQUIRED
+================================================================================
+Sheet: data                         ← Main data
+  Columns: field1, field2, ..., _submission__uuid
+
+Sheet: REPEAT_GROUP_NAME            ← Each repeat group
+  Columns: repeat_field1, ..., _submission__uuid
+
+All sheets MUST have _submission__uuid to link records!
+
+
+FILE CHECKLIST
+================================================================================
+✓ Excel file with data sheet + repeat group sheets
+✓ Question mapping JSON (from generate_mapping.py)
+✓ KoboToolbox API token
+✓ Correct API URL for your server
+
+
+SUCCESS STATUS CODES
+================================================================================
+200 OK       - Submission successful
+201 Created  - Submission successful (created new)
+
+Both are success!
+
+
+COMMON ERRORS
+================================================================================
+401 → Check API token
+403 → Check permissions
+404 → Check API URL endpoint
+400 → Check XML structure
+
+
+QUICK TEST
+================================================================================
+# Test conversion only (no submission)
+python excel_to_kobo_xml.py data.xlsx mapping.json test_output/
+ls test_output/  # Check the XML files
+
+# Test submission with dry-run
+python submit_to_kobo.py --dry-run ...
+
+
+SCRIPTS OVERVIEW
+================================================================================
+excel_to_kobo_xml.py    → Excel to XML conversion
+simple_submit.py        → Simple API submission
+submit_to_kobo.py      → Full-featured batch submission
+end_to_end_example.py  → Complete workflow
+generate_mapping.py    → Create mapping from form
+
+
+NEED HELP?
+================================================================================
+START_HERE.txt     → Overview and getting started
+API_NOTES.txt      → API endpoint details
+QUICKSTART.md      → 3-step quick start
+USAGE.txt          → Common workflows
+README.md          → Full documentation
+
+================================================================================
