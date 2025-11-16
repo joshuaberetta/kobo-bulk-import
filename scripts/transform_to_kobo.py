@@ -275,6 +275,10 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         'resource_unit_type_other'
     ]
     
+    # Check if deprecatedID column exists (for editing existing submissions)
+    if 'deprecatedID' in df.columns:
+        kobo_columns.append('deprecatedID')
+    
     # Verify all columns exist in the raw data
     missing_columns = [col for col in kobo_columns if col not in df.columns]
     if missing_columns:
@@ -314,7 +318,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     print(f"Saving transformed data to: {output_file}")
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
         # Main sheet
-        df_kobo.to_excel(writer, sheet_name='Sheet1', index=False)
+        df_kobo.to_excel(writer, sheet_name='data', index=False)
         
         # Repeat group sheets
         if df_focal_points is not None and len(df_focal_points) > 0:

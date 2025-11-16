@@ -210,6 +210,32 @@ print("Review them in ./xml_output/ before submitting")
 - Check form ID in URL: `https://kf.kobotoolbox.org/#/forms/{form_id}`
 - Ensure you have edit permissions on the form
 
+## Editing Existing Submissions
+
+To edit existing submissions instead of creating new ones, add a `deprecatedID` column to your Excel file:
+
+1. **Add the column**: Create a column named `deprecatedID` in your Excel file
+2. **Fill with original UUIDs**: Enter the UUID of the submission you want to edit (without the "uuid:" prefix)
+3. **New UUIDs**: Ensure each row has a unique `_submission__uuid` value
+4. **Submit**: Use the normal submission process
+
+**Example Excel Structure:**
+```
+| deprecatedID                           | _submission__uuid                      | field1  | field2  |
+|----------------------------------------|----------------------------------------|---------|---------|
+| 00a06a53-1804-4290-bc62-5afc4e2b420a  | 59f2da4c-0f5b-42a7-9854-65ead887f66c  | value1  | value2  |
+```
+
+The generated XML will include both IDs in the meta section:
+```xml
+<meta>
+  <instanceID>uuid:59f2da4c-0f5b-42a7-9854-65ead887f66c</instanceID>
+  <deprecatedID>uuid:00a06a53-1804-4290-bc62-5afc4e2b420a</deprecatedID>
+</meta>
+```
+
+This tells KoboToolbox to update the existing submission (deprecatedID) rather than creating a new one.
+
 ## File Structure
 
 ```

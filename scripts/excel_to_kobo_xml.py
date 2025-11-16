@@ -214,7 +214,7 @@ class ExcelToKoboXML:
                 continue
                 
             # Skip the UUID column and other metadata
-            if col_name == '_submission__uuid' or col_name.startswith('_'):
+            if col_name == '_submission__uuid' or col_name.startswith('_') or col_name == 'deprecatedID':
                 continue
             
             # Skip group-only mappings (structural markers, not actual fields)
@@ -388,6 +388,16 @@ class ExcelToKoboXML:
         meta = ET.SubElement(root, 'meta')
         instance_id = ET.SubElement(meta, 'instanceID')
         instance_id.text = f'uuid:{uuid}'
+        
+        # Add deprecatedID if present (for editing existing submissions)
+        if 'deprecatedID' in submission_row.index and pd.notna(submission_row['deprecatedID']):
+            deprecated_id = ET.SubElement(meta, 'deprecatedID')
+            deprecated_value = submission_row['deprecatedID']
+            # Ensure it has uuid: prefix
+            if not str(deprecated_value).startswith('uuid:'):
+                deprecated_id.text = f'uuid:{deprecated_value}'
+            else:
+                deprecated_id.text = str(deprecated_value)
         
         # Convert to pretty XML string
         xml_string = self._prettify_xml(root)

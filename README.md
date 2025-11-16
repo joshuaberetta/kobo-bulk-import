@@ -62,6 +62,7 @@ python submit.py --config config/config.json
 ## 📚 Documentation
 
 - **[QUICKSTART.md](docs/QUICKSTART.md)** - Get started in 5 minutes
+- **[EDITING_SUBMISSIONS.md](docs/EDITING_SUBMISSIONS.md)** - Edit existing submissions in bulk
 - **[CONFIG.md](docs/CONFIG.md)** - Configuration file reference
 - **[MAPPING_GENERATOR.md](docs/MAPPING_GENERATOR.md)** - Auto-generate field mappings
 - **[TRANSFORM_MERCYCHEF_README.md](docs/TRANSFORM_MERCYCHEF_README.md)** - Data transformation details
@@ -112,10 +113,29 @@ pip install -r requirements.txt
 
 ## 📝 Workflow
 
+### Creating New Submissions
+
 1. **Place raw data** → `raw-data/` folder
 2. **Transform data** → `python transform.py raw-data/file.xlsx`
 3. **Configure API** → Edit `config/config.json`
 4. **Submit to Kobo** → `python submit.py --config config/config.json`
+
+### Editing Existing Submissions
+
+To edit existing submissions in bulk, include a `deprecatedID` column in your spreadsheet:
+
+1. **Add deprecatedID column** → Include the original `_submission__uuid` of the submission you want to edit
+2. **Create new UUID** → Generate a new UUID for the `_submission__uuid` column
+3. **Transform and submit** → Use the same workflow as creating new submissions
+
+The `deprecatedID` will be included in the XML submission metadata, allowing KoboToolbox to update the existing submission rather than creating a duplicate.
+
+**Example:**
+```
+| deprecatedID                           | _submission__uuid                      | ... other fields ... |
+|----------------------------------------|----------------------------------------|----------------------|
+| 00a06a53-1804-4290-bc62-5afc4e2b420a  | 59f2da4c-0f5b-42a7-9854-65ead887f66c  | ...                  |
+```
 
 ## 🧹 Maintenance
 
