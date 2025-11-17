@@ -110,6 +110,7 @@ def process_repeat_groups(df_raw, df_main):
         'community',
         'location_type',
         'location_type_other',
+        'location_address_comments',
         'total_population_targeted',
         'total_population_reached',
         'category_of_people',

@@ -214,10 +214,23 @@ print("Review them in ./xml_output/ before submitting")
 
 To edit existing submissions instead of creating new ones, add a `deprecatedID` column to your Excel file:
 
-1. **Add the column**: Create a column named `deprecatedID` in your Excel file
-2. **Fill with original UUIDs**: Enter the UUID of the submission you want to edit (without the "uuid:" prefix)
-3. **New UUIDs**: Ensure each row has a unique `_submission__uuid` value
-4. **Submit**: Use the normal submission process
+### Quick Workflow
+
+1. **Export from KoboToolbox**: Download your data as Excel
+2. **Prepare for editing**:
+   ```bash
+   # Copy _submission__uuid to deprecatedID column manually in Excel
+   # Then generate new UUIDs
+   python scripts/generate_uuids.py --excel data/kobo_export.xlsx
+   ```
+3. **Make your edits**: Update fields in Excel
+4. **Submit**: Use normal submission process
+
+### What Happens Automatically
+
+✅ **First sheet used as main data** - No need to rename to "data"  
+✅ **Metadata filtered** - Kobo export columns (_submission_time, _status, etc.) automatically excluded  
+✅ **deprecatedID added to XML** - Tells Kobo to update existing submission
 
 **Example Excel Structure:**
 ```

@@ -27,15 +27,38 @@ def generate_uuids(count):
     return [str(uuid.uuid4()) for _ in range(count)]
 
 
-def add_uuids_to_excel(input_file, output_file=None, sheet_name='data'):
+def add_uuids_to_excel(input_file, output_file=None, sheet_name=None):
     """
     Add new _submission__uuid values to an Excel file.
     
     Args:
         input_file: Path to input Excel file
         output_file: Path to output Excel file (optional)
-        sheet_name: Name of the sheet to process (default: 'data')
+        sheet_name: Name of the sheet to process (optional, auto-detects if None)
     """
+    # Auto-detect sheet name if not provided
+    if sheet_name is None:
+        xl_file = pd.ExcelFile(input_file)
+        # Find first sheet with _submission__uuid column (main data sheet)
+        # Skip repeat group sheets by checking if they have _parent_index
+        detected_sheet = None
+        for sname in xl_file.sheet_names:
+            temp_df = pd.read_excel(xl_file, sheet_name=sname, nrows=5)
+            if '_submission__uuid' in temp_df.columns:
+                # Check if this is a repeat group (has _parent_index column)
+                if '_parent_index' not in temp_df.columns:
+                    detected_sheet = sname
+                    break
+        
+        # Fallback to first sheet
+        if detected_sheet is None:
+            detected_sheet = xl_file.sheet_names[0]
+            print(f"Using first sheet: '{detected_sheet}'")
+        else:
+            print(f"Detected main data sheet: '{detected_sheet}'")
+        
+        sheet_name = detected_sheet
+    
     # Read the Excel file
     df = pd.read_excel(input_file, sheet_name=sheet_name)
     
@@ -97,8 +120,8 @@ Examples:
                        help='Excel file to add UUIDs to')
     parser.add_argument('-o', '--output',
                        help='Output Excel file (optional, will auto-generate if not provided)')
-    parser.add_argument('-s', '--sheet', default='data',
-                       help='Sheet name to process (default: "data")')
+    parser.add_argument('-s', '--sheet', default=None,
+                       help='Sheet name to process (default: auto-detect first sheet with _submission__uuid)')
     parser.add_argument('--clipboard', action='store_true',
                        help='Copy UUIDs to clipboard (macOS only)')
     

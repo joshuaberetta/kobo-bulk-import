@@ -124,11 +124,16 @@ pip install -r requirements.txt
 
 To edit existing submissions in bulk, include a `deprecatedID` column in your spreadsheet:
 
-1. **Add deprecatedID column** → Include the original `_submission__uuid` of the submission you want to edit
-2. **Create new UUID** → Generate a new UUID for the `_submission__uuid` column
-3. **Transform and submit** → Use the same workflow as creating new submissions
+1. **Export from KoboToolbox** → Download your data as Excel
+2. **Add deprecatedID column** → Copy `_submission__uuid` values to a new column named `deprecatedID`
+3. **Generate new UUIDs** → Create new values for `_submission__uuid` column
+4. **Make your edits** → Update any fields you want to change
+5. **Submit** → Use the same workflow as creating new submissions
 
-The `deprecatedID` will be included in the XML submission metadata, allowing KoboToolbox to update the existing submission rather than creating a duplicate.
+The tool automatically:
+- Uses the first sheet as main data (no need to rename)
+- Filters out Kobo metadata columns
+- Includes deprecatedID in the XML for proper updates
 
 **Example:**
 ```
@@ -136,6 +141,10 @@ The `deprecatedID` will be included in the XML submission metadata, allowing Kob
 |----------------------------------------|----------------------------------------|----------------------|
 | 00a06a53-1804-4290-bc62-5afc4e2b420a  | 59f2da4c-0f5b-42a7-9854-65ead887f66c  | ...                  |
 ```
+
+The `deprecatedID` will be included in the XML submission metadata, allowing KoboToolbox to update the existing submission rather than creating a duplicate.
+
+See [EDITING_SUBMISSIONS.md](docs/EDITING_SUBMISSIONS.md) for detailed instructions.
 
 ## 🧹 Maintenance
 

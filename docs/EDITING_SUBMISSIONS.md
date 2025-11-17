@@ -20,11 +20,61 @@ KoboToolbox uses the `deprecatedID` field in the submission XML to identify whic
 
 ## Step-by-Step Guide
 
+### Method 1: Using Kobo Export (Recommended)
+
+This method uses data exported directly from KoboToolbox.
+
+#### 1. Export Existing Data from KoboToolbox
+
+1. Go to your project in KoboToolbox
+2. Click **DATA** → **Downloads**
+3. Select **Excel** format
+4. Download the file (e.g., `5W__Hurricane_Melissa_..._2025-11-16.xlsx`)
+5. Save it to your `raw-data/` or `data/` folder
+
+**Important:** The export will contain many metadata columns - the tool automatically filters these out.
+
+#### 2. Prepare the Export for Editing
+
+Open the exported file and:
+
+1. **Add `deprecatedID` column**: Copy the `_submission__uuid` values to a new column named `deprecatedID`
+2. **Generate new UUIDs**: Replace the `_submission__uuid` values with new UUIDs
+
+**Quick method using helper script:**
+```bash
+# This will add new UUIDs automatically
+python scripts/generate_uuids.py --excel data/your_export.xlsx --output data/edits_ready.xlsx
+```
+
+Then manually copy `_submission__uuid` to `deprecatedID` column in Excel before running the script.
+
+#### 3. Make Your Edits
+
+Edit any fields you want to change in the Excel file. The tool will:
+- Automatically use the first sheet as main data (no need to rename it to "data")
+- Filter out all Kobo metadata columns automatically
+- Preserve your edits and the deprecatedID mapping
+
+#### 4. Submit the Edits
+
+```bash
+# Test first
+python submit.py --config config/config.json --dry-run
+
+# Submit
+python submit.py --config config/config.json
+```
+
+### Method 2: Manual Preparation
+
+If you prefer to build your edit file from scratch:
+
 ### 1. Export Existing Data
 
 First, download your existing submissions from KoboToolbox in Excel format. This gives you the current data and the UUIDs you need.
 
-### 2. Prepare Your Excel File
+### 2. Prepare Your Excel File (Manual Method)
 
 Add a `deprecatedID` column to your data:
 
@@ -101,6 +151,37 @@ When you include `deprecatedID`, the generated XML includes both identifiers in 
 This tells KoboToolbox:
 - `instanceID`: The new identifier for this submission
 - `deprecatedID`: Replace the submission with this UUID
+
+## Features for Kobo Exports
+
+The tool is designed to work seamlessly with KoboToolbox exports:
+
+### Automatic Metadata Filtering
+
+When you export data from KoboToolbox, it includes many metadata columns:
+```
+_submission_time, _validation_status, _notes, _status, _submitted_by, 
+__version__, _tags, _index, _id, _parent_table_name, _parent_index, 
+_submission__id, _submission__submission_time, etc.
+```
+
+**The tool automatically excludes these** from the XML submission - you don't need to delete them manually!
+
+### Flexible Sheet Names
+
+- **No need to rename sheets**: The tool automatically uses the first sheet with `_submission__uuid` as the main data
+- Works with Kobo's default sheet naming (e.g., "5W__Hurricane_Melissa_...")
+- Automatically detects repeat group sheets
+
+### What You Need to Do
+
+1. ✅ Export from KoboToolbox (any sheet name is fine)
+2. ✅ Add `deprecatedID` column with original UUIDs
+3. ✅ Generate new `_submission__uuid` values
+4. ✅ Make your edits
+5. ✅ Submit using the same workflow
+
+That's it! No need to clean up metadata or rename sheets.
 
 ## Best Practices
 

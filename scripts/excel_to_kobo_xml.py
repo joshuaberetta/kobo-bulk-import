@@ -90,6 +90,54 @@ class ExcelToKoboXML:
         self.sheets = {}
         for sheet_name in self.xl_file.sheet_names:
             self.sheets[sheet_name] = pd.read_excel(self.xl_file, sheet_name=sheet_name)
+        
+        # Detect main data sheet (first sheet with _submission__uuid column)
+        self.main_sheet_name = None
+        for sheet_name in self.xl_file.sheet_names:
+            if '_submission__uuid' in self.sheets[sheet_name].columns:
+                self.main_sheet_name = sheet_name
+                break
+        
+        # Fallback to first sheet if no _submission__uuid found
+        if self.main_sheet_name is None:
+            self.main_sheet_name = self.xl_file.sheet_names[0]
+            print(f"Warning: Using first sheet '{self.main_sheet_name}' as main data (no _submission__uuid column found)")
+        else:
+            print(f"Using sheet '{self.main_sheet_name}' as main data")
+    
+    def _is_kobo_metadata_column(self, col_name: str) -> bool:
+        """
+        Check if a column is Kobo metadata that should be excluded from XML.
+        
+        Args:
+            col_name: Column name to check
+            
+        Returns:
+            True if this is a metadata column that should be skipped
+        """
+        # Kobo export metadata columns to exclude
+        kobo_metadata = [
+            '_submission_time', '_validation_status', '_notes', '_status', 
+            '_submitted_by', '__version__', '_tags', '_index', '_id',
+            '_parent_table_name', '_parent_index', '_submission__id',
+            '_submission__submission_time', '_submission__validation_status',
+            '_submission__notes', '_submission__status', '_submission__submitted_by',
+            '_submission___version__', '_submission__tags'
+        ]
+        
+        # Check exact matches
+        if col_name in kobo_metadata:
+            return True
+        
+        # Check patterns (e.g., _submission__* that aren't _submission__uuid)
+        if col_name.startswith('_submission__') and col_name != '_submission__uuid':
+            return True
+        
+        # Other underscore-prefixed metadata (except _submission__uuid and deprecatedID)
+        if col_name.startswith('_') and col_name not in ['_submission__uuid']:
+            return True
+        
+        return False
     
     def _convert_label_to_name(self, field_name: str, value: Any) -> Any:
         """
@@ -214,7 +262,11 @@ class ExcelToKoboXML:
                 continue
                 
             # Skip the UUID column and other metadata
-            if col_name == '_submission__uuid' or col_name.startswith('_') or col_name == 'deprecatedID':
+            if col_name == '_submission__uuid' or col_name == 'deprecatedID':
+                continue
+            
+            # Skip Kobo export metadata columns
+            if self._is_kobo_metadata_column(col_name):
                 continue
             
             # Skip group-only mappings (structural markers, not actual fields)
@@ -274,7 +326,11 @@ class ExcelToKoboXML:
             # Build the hierarchy for this repeat instance
             # For repeat groups, columns already have the full path, so we need to strip the repeat group path
             for col_name, path in self.col_to_path.items():
-                if col_name not in row.index or col_name.startswith('_'):
+                if col_name not in row.index:
+                    continue
+                
+                # Skip metadata columns
+                if col_name == '_submission__uuid' or self._is_kobo_metadata_column(col_name):
                     continue
                 
                 # Skip group-only mappings
@@ -321,7 +377,7 @@ class ExcelToKoboXML:
         from datetime import datetime
         
         # Get the main data row
-        main_data = self.sheets['data']
+        main_data = self.sheets[self.main_sheet_name]
         submission_row = main_data[main_data['_submission__uuid'] == uuid]
         
         if submission_row.empty:
@@ -354,7 +410,8 @@ class ExcelToKoboXML:
         
         # Add repeat groups
         for sheet_name in self.xl_file.sheet_names:
-            if sheet_name == 'data':
+            # Skip the main data sheet
+            if sheet_name == self.main_sheet_name:
                 continue
             
             # Skip sheets that don't have _submission__uuid (these are reference sheets, not repeat groups)
@@ -412,6 +469,8 @@ class ExcelToKoboXML:
         """
         Convert all submissions in the Excel file to XML.
         
+        If deprecatedID column exists, only converts submissions with non-empty deprecatedID values.
+        
         Args:
             output_dir: Optional directory to write XML files to
             form_version: Optional form version string to use for all submissions
@@ -419,8 +478,21 @@ class ExcelToKoboXML:
         Returns:
             Dictionary mapping UUID to XML string
         """
-        main_data = self.sheets['data']
-        uuids = main_data['_submission__uuid'].unique()
+        main_data = self.sheets[self.main_sheet_name]
+        
+        # Filter submissions based on deprecatedID if column exists
+        if 'deprecatedID' in main_data.columns:
+            # Only process rows with non-empty deprecatedID (edit mode)
+            filtered_data = main_data[pd.notna(main_data['deprecatedID']) & (main_data['deprecatedID'] != '')]
+            if len(filtered_data) > 0:
+                print(f"Edit mode: Processing {len(filtered_data)} submissions with deprecatedID (out of {len(main_data)} total)")
+                uuids = filtered_data['_submission__uuid'].unique()
+            else:
+                print("Warning: deprecatedID column exists but no submissions have values. Processing all submissions.")
+                uuids = main_data['_submission__uuid'].unique()
+        else:
+            # No deprecatedID column - process all submissions (create mode)
+            uuids = main_data['_submission__uuid'].unique()
         
         results = {}
         
