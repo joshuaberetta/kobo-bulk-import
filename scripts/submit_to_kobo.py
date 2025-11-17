@@ -153,11 +153,13 @@ def main():
     )
     parser.add_argument('--config', help='Path to config.json file with default arguments')
     parser.add_argument('--excel', help='Path to Excel file')
-    parser.add_argument('--mapping', help='Path to JSON mapping file')
+    parser.add_argument('--mapping', help='Path to JSON mapping file (optional, will fetch from API if not provided)')
     parser.add_argument('--token', help='KoboToolbox API token')
     parser.add_argument('--form-id', help='KoboToolbox form ID')
     parser.add_argument('--server', default='https://kc.kobotoolbox.org',
-                       help='KoboToolbox server URL')
+                       help='KoboToolbox server URL (for submissions, deprecated - use --kc-server)')
+    parser.add_argument('--kc-server', help='KoboToolbox KoboCAT server URL (for submissions)')
+    parser.add_argument('--kf-server', help='KoboToolbox KPI server URL (for API calls)')
     parser.add_argument('--formhub-uuid', 
                        help='Formhub UUID (optional, uses default if not provided)')
     parser.add_argument('--version-id',
@@ -214,6 +216,8 @@ def main():
     token = get_arg('token')
     form_id = get_arg('form-id')
     server = get_arg('server', 'https://kc.kobotoolbox.org')
+    kc_server = get_arg('kc-server')
+    kf_server = get_arg('kf-server')
     formhub_uuid = get_arg('formhub-uuid')
     version_id = get_arg('version-id')
     form_version = get_arg('form-version')
@@ -224,36 +228,90 @@ def main():
     use_labels = get_arg('use-labels', False)
     debug = get_arg('debug', False)
     
+    # Handle server URLs - support both old 'server' and new 'kc-server'/'kf-server'
+    if not kc_server:
+        kc_server = server
+    if not kf_server:
+        # Default to kf.kobotoolbox.org if not specified
+        kf_server = server.replace('kc.kobotoolbox.org', 'kf.kobotoolbox.org')
+    
     # Validate required arguments
     if not excel:
         parser.error("--excel is required (or set 'excel' in config file)")
-    if not mapping:
-        parser.error("--mapping is required (or set 'mapping' in config file)")
     if not token:
         parser.error("--token is required (or set 'token' in config file)")
     if not form_id:
         parser.error("--form-id is required (or set 'form-id' in config file)")
     
-    # Auto-generate mapping if content.json is provided
+    # Fetch and auto-generate mapping from Kobo API
     temp_mapping_file = None
-    if mapping and mapping.endswith('content.json'):
-        print(f"\n{'='*60}")
-        print("AUTO-GENERATING MAPPING FROM CONTENT.JSON")
+    temp_content_file = None
+    
+    print(f"\n{'='*60}")
+    print("FETCHING FORM STRUCTURE FROM KOBO API")
+    print(f"{'='*60}\n")
+    
+    # Fetch the asset JSON from Kobo API
+    asset_url = f"{kf_server}/api/v2/assets/{form_id}.json"
+    print(f"Fetching from: {asset_url}")
+    
+    try:
+        response = requests.get(
+            asset_url,
+            headers={'Authorization': f'Token {token}'},
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"✗ Error fetching asset: HTTP {response.status_code}")
+            print(f"Response: {response.text[:500]}")
+            sys.exit(1)
+        
+        asset_data = response.json()
+        
+        # Extract the content dictionary
+        if 'content' not in asset_data:
+            print(f"✗ Error: No 'content' key found in asset response")
+            sys.exit(1)
+        
+        content_data = asset_data['content']
+        print(f"✓ Fetched form structure (version: {asset_data.get('version_id', 'unknown')})")
+        
+        # Save content to temporary file
+        import os
+        temp_fd, temp_content_file = tempfile.mkstemp(suffix='.json', prefix='content_')
+        with os.fdopen(temp_fd, 'w') as f:
+            json.dump(content_data, f, indent=2)
+        
+        print(f"✓ Saved content to temporary file\n")
+        
+        # Auto-generate mapping from content
+        print(f"{'='*60}")
+        print("AUTO-GENERATING MAPPING FROM CONTENT")
         print(f"{'='*60}\n")
         
         # Create temporary mapping file
         temp_fd, temp_mapping_file = tempfile.mkstemp(suffix='.json', prefix='mapping_')
-        import os
         os.close(temp_fd)
         
         # Generate mapping
         try:
-            generate_mapping(mapping, temp_mapping_file)
+            generate_mapping(temp_content_file, temp_mapping_file)
             mapping = temp_mapping_file
             print(f"✓ Using auto-generated mapping\n")
         except Exception as e:
             print(f"✗ Error generating mapping: {e}")
+            # Cleanup
+            if temp_content_file:
+                try:
+                    os.unlink(temp_content_file)
+                except:
+                    pass
             sys.exit(1)
+        
+    except requests.exceptions.RequestException as e:
+        print(f"✗ Error fetching asset from API: {e}")
+        sys.exit(1)
     
     # Step 1: Convert Excel to XML
     print(f"\n{'='*60}")
@@ -316,16 +374,25 @@ def main():
             except:
                 pass
         
+        # Cleanup temporary content file if created
+        if temp_content_file:
+            import os
+            try:
+                os.unlink(temp_content_file)
+            except:
+                pass
+        
         return
     
     print(f"\n{'='*60}")
     print("STEP 2: Submitting to KoboToolbox")
     print(f"{'='*60}\n")
-    print(f"Server: {server}")
+    print(f"KC Server (submissions): {kc_server}")
+    print(f"KF Server (API): {kf_server}")
     print(f"Form ID: {form_id}")
     print(f"Submissions: {len(submissions)}\n")
     
-    submitter = KoboSubmitter(token, server)
+    submitter = KoboSubmitter(token, kc_server)
     submitter.debug = debug
     results = submitter.submit_multiple(
         form_id,
@@ -351,6 +418,14 @@ def main():
         import os
         try:
             os.unlink(temp_mapping_file)
+        except:
+            pass
+    
+    # Cleanup temporary content file if created
+    if temp_content_file:
+        import os
+        try:
+            os.unlink(temp_content_file)
         except:
             pass
     
