@@ -104,6 +104,14 @@ class ExcelToKoboXML:
             print(f"Warning: Using first sheet '{self.main_sheet_name}' as main data (no _submission__uuid column found)")
         else:
             print(f"Using sheet '{self.main_sheet_name}' as main data")
+        
+        # Track validation issues for parishes and communities
+        self.validation_issues = {
+            'unmatched_parishes': [],  # (uuid, original_value, converted_value)
+            'unmatched_communities': [],  # (uuid, original_value, converted_value)
+            'blank_parishes': [],  # (uuid,)
+            'blank_communities': []  # (uuid,)
+        }
     
     def _is_kobo_metadata_column(self, col_name: str) -> bool:
         """
@@ -139,18 +147,26 @@ class ExcelToKoboXML:
         
         return False
     
-    def _convert_label_to_name(self, field_name: str, value: Any) -> Any:
+    def _convert_label_to_name(self, field_name: str, value: Any, track_validation: bool = False, current_uuid: str = None) -> Any:
         """
         Convert choice label to choice name if use_labels is enabled.
         
         Args:
             field_name: The field/question name
             value: The value (possibly a label)
+            track_validation: If True, track validation issues for parish/community
+            current_uuid: Current submission UUID for tracking
             
         Returns:
             The choice name if mapping exists, otherwise original value
         """
         if not self.use_labels or pd.isna(value):
+            # Track blank parish/community if validation is enabled
+            if track_validation and current_uuid and pd.isna(value):
+                if field_name == 'parish':
+                    self.validation_issues['blank_parishes'].append(current_uuid)
+                elif field_name == 'community':
+                    self.validation_issues['blank_communities'].append(current_uuid)
             return value
 
         # If there is no mapping for this field, leave value unchanged
@@ -161,20 +177,45 @@ class ExcelToKoboXML:
 
         # Normalize incoming value
         value_str = str(value).strip()
+        original_value = value_str
 
         # First check if value is already a choice name (code) - if so, keep it as-is
         # Check if value appears as a VALUE in the mapping (meaning it's already a code)
         if value_str in mapping.values():
             return value
 
-        # If mapping is label -> name (common), direct lookup
+        # If mapping is label -> name (common), direct lookup (exact match first)
         if value_str in mapping:
             return mapping[value_str]
 
-        # If mapping is name -> label (older format), try reverse lookup
+        # Try case-insensitive lookup for labels
+        value_str_lower = value_str.lower()
+        for label_key, name_val in mapping.items():
+            if label_key.lower() == value_str_lower:
+                return name_val
+
+        # If mapping is name -> label (older format), try reverse lookup (case-sensitive first)
         for name_key, label_val in mapping.items():
             if str(label_val).strip() == value_str:
                 return name_key
+        
+        # Try case-insensitive reverse lookup
+        for name_key, label_val in mapping.items():
+            if str(label_val).strip().lower() == value_str_lower:
+                return name_key
+
+        # If we get here, no match was found - track validation issue if applicable
+        if track_validation and current_uuid:
+            # Check if this is a pcode pattern (starts with JM followed by digits)
+            is_pcode = value_str.startswith('JM') and any(c.isdigit() for c in value_str)
+            if not is_pcode:
+                if field_name == 'parish':
+                    self.validation_issues['unmatched_parishes'].append((current_uuid, original_value, value_str))
+                elif field_name == 'community':
+                    self.validation_issues['unmatched_communities'].append((current_uuid, original_value, value_str))
+
+        # No mapping found, return original value
+        return value
 
         # Handle multi-select values (common separators: ';', '|', ' ')
         for sep in [';', '|', ' ']:
@@ -182,19 +223,34 @@ class ExcelToKoboXML:
                 parts = [p.strip() for p in value_str.split(sep) if p.strip()]
                 converted_parts = []
                 for part in parts:
+                    part_lower = part.lower()
                     # Check if already a code
                     if part in mapping.values():
                         converted_parts.append(part)
                     elif part in mapping:
                         converted_parts.append(mapping[part])
                     else:
-                        # try reverse lookup
+                        # Try case-insensitive lookup for labels
                         found = False
-                        for name_key, label_val in mapping.items():
-                            if str(label_val).strip() == part:
-                                converted_parts.append(name_key)
+                        for label_key, name_val in mapping.items():
+                            if label_key.lower() == part_lower:
+                                converted_parts.append(name_val)
                                 found = True
                                 break
+                        if not found:
+                            # try reverse lookup (case-sensitive first)
+                            for name_key, label_val in mapping.items():
+                                if str(label_val).strip() == part:
+                                    converted_parts.append(name_key)
+                                    found = True
+                                    break
+                        if not found:
+                            # try case-insensitive reverse lookup
+                            for name_key, label_val in mapping.items():
+                                if str(label_val).strip().lower() == part_lower:
+                                    converted_parts.append(name_key)
+                                    found = True
+                                    break
                         if not found:
                             converted_parts.append(part)
                 # Join using space which is the ODK internal separator for multiples
@@ -203,7 +259,7 @@ class ExcelToKoboXML:
         # No mapping found, return original value
         return value
     
-    def _create_nested_element(self, parent: ET.Element, path: str, value: Any, field_name: str = None) -> ET.Element:
+    def _create_nested_element(self, parent: ET.Element, path: str, value: Any, field_name: str = None, uuid: str = None) -> ET.Element:
         """
         Create nested XML elements based on path (e.g., 'org_details/FOCAL_POINTS/email').
         
@@ -212,6 +268,7 @@ class ExcelToKoboXML:
             path: Slash-separated path for the element
             value: Value to set for the leaf element
             field_name: Original field name for choice mapping lookup
+            uuid: Current submission UUID for validation tracking
             
         Returns:
             The leaf element that was created or found
@@ -230,8 +287,9 @@ class ExcelToKoboXML:
                 new_elem = ET.SubElement(current, part)
                 current = new_elem
         
-        # Convert label to name if needed
-        converted_value = self._convert_label_to_name(field_name, value) if field_name else value
+        # Convert label to name if needed, track validation for parish/community
+        track_validation = field_name in ('parish', 'community') if field_name else False
+        converted_value = self._convert_label_to_name(field_name, value, track_validation=track_validation, current_uuid=uuid) if field_name else value
         
         # Set the value on the leaf element
         if pd.notna(converted_value):
@@ -246,7 +304,7 @@ class ExcelToKoboXML:
             
         return current
     
-    def _build_group_hierarchy(self, row: pd.Series, parent: ET.Element, path_prefix: str = "") -> None:
+    def _build_group_hierarchy(self, row: pd.Series, parent: ET.Element, path_prefix: str = "", uuid: str = None) -> None:
         """
         Build the hierarchical XML structure for a single row of data.
         
@@ -254,6 +312,7 @@ class ExcelToKoboXML:
             row: Pandas Series containing the data
             parent: Parent XML element to add children to
             path_prefix: Prefix to filter paths (for repeat groups)
+            uuid: Current submission UUID for validation tracking
         """
         # Process fields in the order they appear in the mapping (not Excel column order)
         for col_name, path in self.col_to_path.items():
@@ -286,8 +345,8 @@ class ExcelToKoboXML:
                 else:
                     relative_path = path
                 
-                # Create the nested element (pass field_name so label->name conversion can occur)
-                self._create_nested_element(parent, relative_path, value, field_name=col_name)
+                # Create the nested element (pass field_name and uuid so label->name conversion can occur)
+                self._create_nested_element(parent, relative_path, value, field_name=col_name, uuid=uuid)
     
     def _add_repeat_group(self, parent: ET.Element, repeat_name: str, 
                          repeat_data: pd.DataFrame, uuid: str) -> None:
@@ -346,8 +405,8 @@ class ExcelToKoboXML:
                 
                 value = row[col_name]
                 
-                # Create the nested element
-                self._create_nested_element(repeat_elem, relative_path, value, field_name=col_name)
+                # Create the nested element (pass uuid for validation tracking)
+                self._create_nested_element(repeat_elem, relative_path, value, field_name=col_name, uuid=uuid)
     
     def _prettify_xml(self, elem: ET.Element) -> str:
         """
@@ -405,8 +464,8 @@ class ExcelToKoboXML:
             formhub_uuid_elem = ET.SubElement(formhub, 'uuid')
             formhub_uuid_elem.text = self.formhub_uuid
         
-        # Build the main structure
-        self._build_group_hierarchy(submission_row, root)
+        # Build the main structure (pass uuid for validation tracking)
+        self._build_group_hierarchy(submission_row, root, uuid=uuid)
         
         # Add repeat groups
         for sheet_name in self.xl_file.sheet_names:
@@ -514,6 +573,51 @@ class ExcelToKoboXML:
             
             except Exception as e:
                 print(f"✗ Error converting {uuid}: {e}", file=sys.stderr)
+        
+        # Report validation issues if any were found
+        if any(self.validation_issues.values()):
+            print("\n" + "="*80)
+            print("⚠️  VALIDATION ISSUES DETECTED")
+            print("="*80)
+            
+            if self.validation_issues['blank_parishes']:
+                print(f"\n❌ Blank Parishes ({len(self.validation_issues['blank_parishes'])} submissions):")
+                for uuid in self.validation_issues['blank_parishes'][:10]:  # Show first 10
+                    print(f"   - {uuid}")
+                if len(self.validation_issues['blank_parishes']) > 10:
+                    print(f"   ... and {len(self.validation_issues['blank_parishes']) - 10} more")
+            
+            if self.validation_issues['blank_communities']:
+                print(f"\n❌ Blank Communities ({len(self.validation_issues['blank_communities'])} submissions):")
+                for uuid in self.validation_issues['blank_communities'][:10]:
+                    print(f"   - {uuid}")
+                if len(self.validation_issues['blank_communities']) > 10:
+                    print(f"   ... and {len(self.validation_issues['blank_communities']) - 10} more")
+            
+            if self.validation_issues['unmatched_parishes']:
+                print(f"\n⚠️  Unmatched Parishes ({len(self.validation_issues['unmatched_parishes'])} occurrences):")
+                # Group by value to show patterns
+                from collections import Counter
+                value_counts = Counter(val for _, val, _ in self.validation_issues['unmatched_parishes'])
+                for value, count in value_counts.most_common(10):
+                    # Show one example UUID
+                    example_uuid = next(uuid for uuid, val, _ in self.validation_issues['unmatched_parishes'] if val == value)
+                    print(f"   - '{value}' ({count}x) - e.g., {example_uuid}")
+            
+            if self.validation_issues['unmatched_communities']:
+                print(f"\n⚠️  Unmatched Communities ({len(self.validation_issues['unmatched_communities'])} occurrences):")
+                # Group by value to show patterns
+                from collections import Counter
+                value_counts = Counter(val for _, val, _ in self.validation_issues['unmatched_communities'])
+                for value, count in value_counts.most_common(10):
+                    # Show one example UUID
+                    example_uuid = next(uuid for uuid, val, _ in self.validation_issues['unmatched_communities'] if val == value)
+                    print(f"   - '{value}' ({count}x) - e.g., {example_uuid}")
+            
+            print("\n" + "="*80)
+            print("⚠️  These values were kept as-is in the XML but may not match")
+            print("    the KoboToolbox form's expected choice values (pcodes).")
+            print("="*80 + "\n")
                 
         return results
 

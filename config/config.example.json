@@ -5,8 +5,6 @@
   "token": "YOUR_API_TOKEN_HERE",
   "server": "https://kc.kobotoolbox.org",
   "formhub-uuid": null,
-  "version-id": "vdjkkW3B5b9mKHZVoDPYbA",
-  "form-version": null,
   "use-labels": true,
   "dry-run": true,
   "debug": false,

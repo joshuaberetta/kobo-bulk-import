@@ -82,90 +82,116 @@ def detect_header_row(df, max_rows=20):
     return 8
 
 
-def process_repeat_groups(df_raw, df_main):
+def process_repeat_groups(df_raw, df_main, group_to_uuid_map):
     """
     Process repeat groups (FOCAL_POINTS and FIGURES_COMMUNITY) from raw data.
     
     Args:
         df_raw (pd.DataFrame): Original raw data with all columns
         df_main (pd.DataFrame): Main transformed data with UUIDs
+        group_to_uuid_map (dict): Mapping of group keys to submission UUIDs
     
     Returns:
         tuple: (df_focal_points, df_figures_community)
     """
-    
-    # Get UUIDs from main data
-    uuids = df_main['_submission__uuid'].tolist()
     
     # FOCAL_POINTS columns
     focal_points_cols = ['name', 'email', 'phone', 'job_title']
     
     # FIGURES_COMMUNITY columns (all the location and population data)
     figures_community_cols = [
-        'quantity_resource',
-        'budget_resource',
-        'start_date',
-        'end_date',
+        'position',
+        'intro_community',
         'parish',
         'community',
         'location_type',
         'location_type_other',
         'location_address_comments',
+        'quantity_resource',
+        'budget_resource',
         'total_population_targeted',
         'total_population_reached',
         'category_of_people',
         'category_of_people_specify',
         'idp_household_targeted',
         'idp_household_reached',
+        'warn_idp_targeted',
         'idp_people_targeted',
         'idp_women_targeted',
         'idp_men_targeted',
         'idp_children_targeted',
+        'warn_idp_reached',
         'idp_people_reached',
         'idp_women_reached',
         'idp_men_reached',
         'idp_children_reached',
         'people_hosting_household_targeted',
         'people_hosting_household_reached',
+        'warn_hosting_targeted',
         'hosting_people_targeted',
         'hosting_women_targeted',
         'hosting_men_targeted',
         'hosting_children_targeted',
+        'warn_hosting_reached',
         'hosting_people_reached',
         'hosting_women_reached',
         'hosting_men_reached',
         'hosting_children_reached',
         'non_displaced_household_targeted',
         'non_displaced_household_reached',
+        'warn_ndp_targeted',
         'ndp_people_targeted',
         'ndp_women_targeted',
         'ndp_men_targeted',
         'ndp_children_targeted',
+        'warn_ndp_reached',
         'ndp_people_reached',
         'ndp_women_reached',
         'ndp_men_reached',
         'ndp_children_reached',
         'other_population_household_targeted',
         'other_population_household_reached',
+        'warn_other_targeted',
         'other_people_targeted',
         'other_women_targeted',
         'other_men_targeted',
         'other_children_targeted',
+        'warn_other_reached',
         'other_people_reached',
         'other_women_reached',
         'other_men_reached',
         'other_children_reached'
     ]
     
+    # Grouping fields to determine which submission a row belongs to
+    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'activity_type', 'start_date', 'end_date']
+    
+    # Filter to only available grouping fields in raw data
+    available_grouping_fields = [field for field in grouping_fields if field in df_raw.columns]
+    
+    # Format dates in raw data to match the formatted dates used in grouping
+    df_raw_copy = df_raw.copy()
+    for date_col in ['start_date', 'end_date']:
+        if date_col in df_raw_copy.columns:
+            df_raw_copy[date_col] = df_raw_copy[date_col].apply(
+                lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) and (isinstance(x, pd.Timestamp) or isinstance(x, datetime)) else x
+            )
+    
     # Process FOCAL_POINTS
     df_focal_points = None
-    focal_points_available = [col for col in focal_points_cols if col in df_raw.columns]
+    focal_points_available = [col for col in focal_points_cols if col in df_raw_copy.columns]
     
     if focal_points_available:
         focal_points_data = []
-        for idx, row in df_raw.iterrows():
-            if idx < len(uuids):
-                uuid = uuids[idx]
+        for idx, row in df_raw_copy.iterrows():
+            # Create group key from this row
+            group_key = tuple(
+                str(row[field]) if pd.notna(row[field]) else '' 
+                for field in available_grouping_fields
+            )
+            
+            uuid = group_to_uuid_map.get(group_key)
+            if uuid:
                 # Create entry with all available columns
                 focal_entry = {}
                 for col in focal_points_available:
@@ -178,6 +204,8 @@ def process_repeat_groups(df_raw, df_main):
         
         if focal_points_data:
             df_focal_points = pd.DataFrame(focal_points_data)
+            # Remove duplicate focal points for the same submission
+            df_focal_points = df_focal_points.drop_duplicates(subset=['email', '_submission__uuid'])
             # Ensure proper column order
             cols = [col for col in focal_points_available if col in df_focal_points.columns]
             df_focal_points = df_focal_points[cols + ['_submission__uuid']]
@@ -185,27 +213,31 @@ def process_repeat_groups(df_raw, df_main):
     
     # Process FIGURES_COMMUNITY
     df_figures_community = None
-    figures_available = [col for col in figures_community_cols if col in df_raw.columns]
+    figures_available = [col for col in figures_community_cols if col in df_raw_copy.columns]
     
     if figures_available:
         figures_data = []
-        for idx, row in df_raw.iterrows():
-            if idx < len(uuids):
-                uuid = uuids[idx]
+        for idx, row in df_raw_copy.iterrows():
+            # Create group key from this row
+            group_key = tuple(
+                str(row[field]) if pd.notna(row[field]) else '' 
+                for field in available_grouping_fields
+            )
+            
+            uuid = group_to_uuid_map.get(group_key)
+            if uuid:
                 # Create entry with all available columns
                 community_entry = {}
                 has_data = False
                 
                 for col in figures_available:
                     value = row[col] if pd.notna(row[col]) else None
-                    # Format date columns to yyyy-mm-dd
-                    if value is not None and col in ['start_date', 'end_date']:
-                        if isinstance(value, pd.Timestamp) or isinstance(value, datetime):
-                            value = value.strftime('%Y-%m-%d')
                     community_entry[col] = value
                     # Check if this row has any meaningful data
                     if value is not None and col in ['parish', 'community', 'quantity_resource', 
-                                                       'category_of_people', 'location_type']:
+                                                       'budget_resource', 'category_of_people', 
+                                                       'location_type', 'total_population_targeted',
+                                                       'total_population_reached']:
                         has_data = True
                 
                 # Only add if there's at least some community data
@@ -252,6 +284,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     print(f"Read {len(df)} rows from raw data file")
     
     # Define the columns needed for Kobo import (excluding _submission__uuid which we'll add)
+    # These are the main submission columns (not in repeat groups)
     kobo_columns = [
         'LeadOrganization_type',
         'LeadOrganization_type_2',
@@ -263,6 +296,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         'ImplementingOrganization_name',
         'ImplementingOrganization_name_2',
         'sector',
+        'sector_label',
         'scetor_2',
         'activity_type',
         'activity_type_other',
@@ -273,7 +307,10 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         'resource_type',
         'resource_type_other',
         'resource_unit_type',
-        'resource_unit_type_other'
+        'resource_unit_type_other',
+        'start_date',
+        'end_date',
+        'instruction_add_community'
     ]
     
     # Check if deprecatedID column exists (for editing existing submissions)
@@ -293,13 +330,52 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     # Remove rows where all values are NaN
     df_kobo = df_kobo.dropna(how='all')
     
-    # Generate UUID for each row
-    df_kobo['_submission__uuid'] = [generate_uuid() for _ in range(len(df_kobo))]
+    # Format date columns to yyyy-mm-dd
+    for date_col in ['start_date', 'end_date']:
+        if date_col in df_kobo.columns:
+            df_kobo[date_col] = df_kobo[date_col].apply(
+                lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) and (isinstance(x, pd.Timestamp) or isinstance(x, datetime)) else x
+            )
     
-    print(f"Transformed main data: {len(df_kobo)} rows, {len(df_kobo.columns)} columns")
+    # Group rows by combination of key fields
+    # Fields that define a unique submission:
+    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'activity_type', 'start_date', 'end_date']
+    
+    # Filter grouping fields to only those that exist in the dataframe
+    available_grouping_fields = [field for field in grouping_fields if field in df_kobo.columns]
+    
+    print(f"\nGrouping submissions by: {', '.join(available_grouping_fields)}")
+    
+    # Create a grouping key for each row
+    df_kobo['_group_key'] = df_kobo[available_grouping_fields].apply(
+        lambda row: tuple(str(val) if pd.notna(val) else '' for val in row),
+        axis=1
+    )
+    
+    # Get unique groups and create one submission per group
+    unique_groups = df_kobo['_group_key'].unique()
+    
+    # Create mapping of group key to UUID
+    group_to_uuid_map = {group: generate_uuid() for group in unique_groups}
+    
+    # Add UUID to each row based on its group
+    df_kobo['_submission__uuid'] = df_kobo['_group_key'].map(group_to_uuid_map)
+    
+    # For the main data sheet, we only want one row per unique group
+    # Take the first row of each group as the main submission
+    df_main = df_kobo.groupby('_group_key', as_index=False).first()
+    
+    # Remove the temporary _group_key column from main data
+    if '_group_key' in df_main.columns:
+        df_main = df_main.drop(columns=['_group_key'])
+    
+    print(f"Raw data rows: {len(df_kobo)}")
+    print(f"Unique submissions (after grouping): {len(df_main)}")
+    print(f"Transformed main data: {len(df_main)} rows, {len(df_main.columns)} columns")
     
     # Process repeat groups: FOCAL_POINTS and FIGURES_COMMUNITY
-    df_focal_points, df_figures_community = process_repeat_groups(df, df_kobo)
+    # Pass the original df (with all rows) and the group_to_uuid_map
+    df_focal_points, df_figures_community = process_repeat_groups(df, df_main, group_to_uuid_map)
     
     # Determine output file path
     if output_file is None:
@@ -319,7 +395,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     print(f"Saving transformed data to: {output_file}")
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
         # Main sheet
-        df_kobo.to_excel(writer, sheet_name='data', index=False)
+        df_main.to_excel(writer, sheet_name='data', index=False)
         
         # Repeat group sheets
         if df_focal_points is not None and len(df_focal_points) > 0:
@@ -330,7 +406,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
             df_figures_community.to_excel(writer, sheet_name='FIGURES_COMMUNITY', index=False)
             print(f"  ✓ FIGURES_COMMUNITY: {len(df_figures_community)} rows")
     
-    print(f"✓ Successfully transformed {len(df_kobo)} main records")
+    print(f"✓ Successfully transformed {len(df_main)} main records")
     print(f"✓ Output file: {output_file}")
     
     return output_file

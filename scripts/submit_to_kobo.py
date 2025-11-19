@@ -275,7 +275,36 @@ def main():
             sys.exit(1)
         
         content_data = asset_data['content']
-        print(f"✓ Fetched form structure (version: {asset_data.get('version_id', 'unknown')})")
+        # Determine version id and human-friendly form version string from the asset JSON
+        # Prefer deployed_version_id (the currently deployed asset) and the deployed_versions count
+        deployed_version_id = asset_data.get('deployed_version_id') or asset_data.get('version_id')
+        deployed_versions_count = None
+        if isinstance(asset_data.get('deployed_versions'), dict):
+            deployed_versions_count = asset_data['deployed_versions'].get('count')
+        # Fallback to other possible keys
+        if deployed_versions_count is None:
+            deployed_versions_count = asset_data.get('deployed_versions_count') or asset_data.get('version_count')
+
+        date_deployed = asset_data.get('date_deployed') or asset_data.get('date')
+
+        # Build a readable form_version string like: "16 (2025-11-18 17:21:29)" if possible
+        form_version_from_asset = None
+        try:
+            if deployed_versions_count is not None:
+                if date_deployed:
+                    # Normalize ISO timestamp to a shorter form without timezone
+                    # e.g. "2025-11-18T17:21:29.359930Z" -> "2025-11-18 17:21:29"
+                    date_str = date_deployed.replace('T', ' ').replace('Z', '')
+                    # Trim fractional seconds if present
+                    if '.' in date_str:
+                        date_str = date_str.split('.')[0]
+                    form_version_from_asset = f"{deployed_versions_count} ({date_str})"
+                else:
+                    form_version_from_asset = str(deployed_versions_count)
+        except Exception:
+            form_version_from_asset = None
+
+        print(f"✓ Fetched form structure (deployed_version_id: {deployed_version_id}, deployed_versions.count: {deployed_versions_count})")
         
         # Save content to temporary file
         import os
@@ -285,6 +314,12 @@ def main():
         
         print(f"✓ Saved content to temporary file\n")
         
+        # If version-id / form-version not supplied via CLI/config, prefer the values extracted from the asset
+        if not version_id:
+            version_id = deployed_version_id
+        if not form_version and form_version_from_asset:
+            form_version = form_version_from_asset
+
         # Auto-generate mapping from content
         print(f"{'='*60}")
         print("AUTO-GENERATING MAPPING FROM CONTENT")
@@ -383,6 +418,52 @@ def main():
                 pass
         
         return
+    
+    # Check for validation issues before submitting
+    if any(converter.validation_issues.values()):
+        print("\n" + "!"*60)
+        print("⚠️  WARNING: VALIDATION ISSUES DETECTED")
+        print("!"*60)
+        
+        total_issues = sum(len(v) for v in converter.validation_issues.values())
+        print(f"\nFound {total_issues} validation issue(s):")
+        
+        if converter.validation_issues['blank_parishes']:
+            print(f"  - {len(converter.validation_issues['blank_parishes'])} blank parish value(s)")
+        if converter.validation_issues['blank_communities']:
+            print(f"  - {len(converter.validation_issues['blank_communities'])} blank community value(s)")
+        if converter.validation_issues['unmatched_parishes']:
+            print(f"  - {len(converter.validation_issues['unmatched_parishes'])} unmatched parish value(s)")
+        if converter.validation_issues['unmatched_communities']:
+            print(f"  - {len(converter.validation_issues['unmatched_communities'])} unmatched community value(s)")
+        
+        print("\nThese values may not match KoboToolbox form's expected pcodes.")
+        print("Submissions with invalid values may not appear correctly in reports.")
+        print("\nRun with --dry-run to see detailed validation report.")
+        
+        # Ask for confirmation
+        print("\n" + "!"*60)
+        response = input("Do you want to continue with submission? (yes/no): ").strip().lower()
+        if response not in ('yes', 'y'):
+            print("\n✗ Submission cancelled by user")
+            
+            # Cleanup temporary files
+            if temp_mapping_file:
+                import os
+                try:
+                    os.unlink(temp_mapping_file)
+                except:
+                    pass
+            if temp_content_file:
+                import os
+                try:
+                    os.unlink(temp_content_file)
+                except:
+                    pass
+            
+            sys.exit(0)
+        
+        print("\n✓ Continuing with submission...\n")
     
     print(f"\n{'='*60}")
     print("STEP 2: Submitting to KoboToolbox")
