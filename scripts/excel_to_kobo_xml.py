@@ -105,10 +105,8 @@ class ExcelToKoboXML:
         else:
             print(f"Using sheet '{self.main_sheet_name}' as main data")
         
-        # Track validation issues for parishes and communities
+        # Track validation issues
         self.validation_issues = {
-            'unmatched_parishes': [],  # (uuid, original_value, converted_value)
-            'unmatched_communities': [],  # (uuid, original_value, converted_value)
             'blank_parishes': [],  # (uuid,)
             'blank_communities': []  # (uuid,)
         }
@@ -205,14 +203,18 @@ class ExcelToKoboXML:
                 return name_key
 
         # If we get here, no match was found - track validation issue if applicable
-        if track_validation and current_uuid:
-            # Check if this is a pcode pattern (starts with JM followed by digits)
-            is_pcode = value_str.startswith('JM') and any(c.isdigit() for c in value_str)
+        if current_uuid:
+            # Check if this is a pcode pattern (starts with JM followed by digits) - only relevant for location fields
+            is_pcode = False
+            if field_name in ['parish', 'community']:
+                is_pcode = value_str.startswith('JM') and any(c.isdigit() for c in value_str)
+            
             if not is_pcode:
-                if field_name == 'parish':
-                    self.validation_issues['unmatched_parishes'].append((current_uuid, original_value, value_str))
-                elif field_name == 'community':
-                    self.validation_issues['unmatched_communities'].append((current_uuid, original_value, value_str))
+                # Initialize list for this field if not exists
+                if field_name not in self.validation_issues:
+                    self.validation_issues[field_name] = []
+                
+                self.validation_issues[field_name].append((current_uuid, original_value, value_str))
 
         # No mapping found, return original value
         return value
@@ -273,9 +275,8 @@ class ExcelToKoboXML:
         Returns:
             The leaf element that was created or found, or None if value is empty
         """
-        # Convert label to name if needed, track validation for parish/community
-        track_validation = field_name in ('parish', 'community') if field_name else False
-        converted_value = self._convert_label_to_name(field_name, value, track_validation=track_validation, current_uuid=uuid) if field_name else value
+        # Convert label to name if needed
+        converted_value = self._convert_label_to_name(field_name, value, track_validation=True, current_uuid=uuid) if field_name else value
         
         # Skip creating element if value is empty (NaN/None)
         if pd.isna(converted_value):
@@ -580,43 +581,45 @@ class ExcelToKoboXML:
             print("⚠️  VALIDATION ISSUES DETECTED")
             print("="*80)
             
-            if self.validation_issues['blank_parishes']:
-                print(f"\n❌ Blank Parishes ({len(self.validation_issues['blank_parishes'])} submissions):")
-                for uuid in self.validation_issues['blank_parishes'][:10]:  # Show first 10
-                    print(f"   - {uuid}")
-                if len(self.validation_issues['blank_parishes']) > 10:
-                    print(f"   ... and {len(self.validation_issues['blank_parishes']) - 10} more")
+            # Report blank values first
+            for blank_key in ['blank_parishes', 'blank_communities']:
+                if blank_key in self.validation_issues and self.validation_issues[blank_key]:
+                    field_display = blank_key.replace('blank_', '').title()
+                    print(f"\n❌ Blank {field_display} ({len(self.validation_issues[blank_key])} submissions):")
+                    for uuid in self.validation_issues[blank_key][:10]:
+                        print(f"   - {uuid}")
+                    if len(self.validation_issues[blank_key]) > 10:
+                        print(f"   ... and {len(self.validation_issues[blank_key]) - 10} more")
             
-            if self.validation_issues['blank_communities']:
-                print(f"\n❌ Blank Communities ({len(self.validation_issues['blank_communities'])} submissions):")
-                for uuid in self.validation_issues['blank_communities'][:10]:
-                    print(f"   - {uuid}")
-                if len(self.validation_issues['blank_communities']) > 10:
-                    print(f"   ... and {len(self.validation_issues['blank_communities']) - 10} more")
+            # Report unmatched values for all fields
+            unmatched_fields = [k for k in self.validation_issues.keys() if not k.startswith('blank_')]
             
-            if self.validation_issues['unmatched_parishes']:
-                print(f"\n⚠️  Unmatched Parishes ({len(self.validation_issues['unmatched_parishes'])} occurrences):")
-                # Group by value to show patterns
-                from collections import Counter
-                value_counts = Counter(val for _, val, _ in self.validation_issues['unmatched_parishes'])
-                for value, count in value_counts.most_common(10):
-                    # Show one example UUID
-                    example_uuid = next(uuid for uuid, val, _ in self.validation_issues['unmatched_parishes'] if val == value)
-                    print(f"   - '{value}' ({count}x) - e.g., {example_uuid}")
-            
-            if self.validation_issues['unmatched_communities']:
-                print(f"\n⚠️  Unmatched Communities ({len(self.validation_issues['unmatched_communities'])} occurrences):")
-                # Group by value to show patterns
-                from collections import Counter
-                value_counts = Counter(val for _, val, _ in self.validation_issues['unmatched_communities'])
-                for value, count in value_counts.most_common(10):
-                    # Show one example UUID
-                    example_uuid = next(uuid for uuid, val, _ in self.validation_issues['unmatched_communities'] if val == value)
-                    print(f"   - '{value}' ({count}x) - e.g., {example_uuid}")
+            if unmatched_fields:
+                print(f"\n⚠️  Unmatched Values (Labels that couldn't be mapped to Codes):")
+                
+                for field in sorted(unmatched_fields):
+                    issues = self.validation_issues[field]
+                    if not issues:
+                        continue
+                        
+                    print(f"\n   Field: '{field}' ({len(issues)} occurrences)")
+                    
+                    # Group by value to show patterns
+                    from collections import Counter
+                    # issues is list of (uuid, original_value, value_str)
+                    value_counts = Counter(val for _, val, _ in issues)
+                    
+                    for value, count in value_counts.most_common(10):
+                        # Show one example UUID
+                        example_uuid = next(uuid for uuid, val, _ in issues if val == value)
+                        print(f"     - '{value}' ({count}x) - e.g., {example_uuid}")
+                    
+                    if len(value_counts) > 10:
+                        print(f"     ... and {len(value_counts) - 10} more unique values")
             
             print("\n" + "="*80)
             print("⚠️  These values were kept as-is in the XML but may not match")
-            print("    the KoboToolbox form's expected choice values (pcodes).")
+            print("    the KoboToolbox form's expected choice values.")
             print("="*80 + "\n")
                 
         return results

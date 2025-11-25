@@ -428,16 +428,20 @@ def main():
         total_issues = sum(len(v) for v in converter.validation_issues.values())
         print(f"\nFound {total_issues} validation issue(s):")
         
-        if converter.validation_issues['blank_parishes']:
-            print(f"  - {len(converter.validation_issues['blank_parishes'])} blank parish value(s)")
-        if converter.validation_issues['blank_communities']:
-            print(f"  - {len(converter.validation_issues['blank_communities'])} blank community value(s)")
-        if converter.validation_issues['unmatched_parishes']:
-            print(f"  - {len(converter.validation_issues['unmatched_parishes'])} unmatched parish value(s)")
-        if converter.validation_issues['unmatched_communities']:
-            print(f"  - {len(converter.validation_issues['unmatched_communities'])} unmatched community value(s)")
+        # Report blank values
+        for blank_key in ['blank_parishes', 'blank_communities']:
+            if blank_key in converter.validation_issues and converter.validation_issues[blank_key]:
+                field_display = blank_key.replace('blank_', '').title()
+                print(f"  - {len(converter.validation_issues[blank_key])} blank {field_display} value(s)")
         
-        print("\nThese values may not match KoboToolbox form's expected pcodes.")
+        # Report unmatched values
+        unmatched_fields = [k for k in converter.validation_issues.keys() if not k.startswith('blank_')]
+        for field in sorted(unmatched_fields):
+            issues = converter.validation_issues[field]
+            if issues:
+                print(f"  - {len(issues)} unmatched '{field}' value(s)")
+        
+        print("\nThese values may not match KoboToolbox form's expected choice values.")
         print("Submissions with invalid values may not appear correctly in reports.")
         print("\nRun with --dry-run to see detailed validation report.")
         
