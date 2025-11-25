@@ -393,7 +393,7 @@ def process_repeat_groups(df_raw, df_main, group_to_uuid_map):
     return df_focal_points, df_figures_community
 
 
-def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entry', header_row=None):
+def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entry', header_row=None, import_name=None):
     """
     Transform 5W offline form data to Kobo import format.
     
@@ -402,6 +402,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         output_file (str): Path for the output file (optional)
         sheet_name (str): Name of the sheet to read (default: 'Data Entry')
         header_row (int): Row number containing headers (0-based). If None, auto-detect.
+        import_name (str): Value for the 'import' column. If None, uses config or output filename.
     
     Returns:
         str: Path to the output file
@@ -543,6 +544,21 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         base_name = base_name.replace('(2)', '').replace('_raw', '').strip()
         output_file = f'data/{base_name}_kobo_import_{timestamp}.xlsx'
     
+    # Determine value for 'import' column
+    import_col_value = import_name
+    if not import_col_value:
+        import_col_value = config.get('import-name')
+    if not import_col_value:
+        # Use output filename without path
+        import_col_value = os.path.basename(output_file)
+        
+    # Add 'view_permission' and 'import' columns to the start of df_main
+    print(f"Adding 'view_permission'='yes' and 'import'='{import_col_value}' columns")
+    
+    # Insert in reverse order so they end up at the start: view_permission (0), import (1)
+    df_main.insert(0, 'import', import_col_value)
+    df_main.insert(0, 'view_permission', 'yes')
+    
     # Create output directory if it doesn't exist
     output_dir = os.path.dirname(output_file)
     if output_dir:
@@ -617,6 +633,8 @@ Examples:
                         help='Name of the sheet to read (default: "Data Entry")')
     parser.add_argument('-r', '--header-row', type=int, default=None,
                         help='Row number containing headers (0-based). If not specified, will auto-detect.')
+    parser.add_argument('--import-name', default=None,
+                        help='Value for the "import" column. Defaults to config value or output filename.')
     
     args = parser.parse_args()
     
@@ -631,7 +649,8 @@ Examples:
             input_file=args.input_file,
             output_file=args.output_file,
             sheet_name=args.sheet,
-            header_row=args.header_row
+            header_row=args.header_row,
+            import_name=args.import_name
         )
     except Exception as e:
         print(f"\nError during transformation: {e}")
