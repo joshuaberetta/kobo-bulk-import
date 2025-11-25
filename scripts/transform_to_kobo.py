@@ -22,6 +22,7 @@ import requests
 import tempfile
 from collections import Counter
 from generate_mapping import generate_mapping
+from openpyxl.styles import PatternFill
 
 
 def load_config():
@@ -155,6 +156,52 @@ def convert_value(field_name, value, choices_map, validation_issues):
     validation_issues[field_name].append(value_str)
     
     return value
+
+
+def highlight_unmatched_cells(worksheet, df, choices_map):
+    """
+    Highlight cells in the worksheet where values don't match the expected codes.
+    
+    Args:
+        worksheet: openpyxl worksheet object
+        df: pandas DataFrame corresponding to the worksheet data
+        choices_map: dictionary mapping field names to choice dictionaries
+    """
+    orange_fill = PatternFill(start_color='FFC000', end_color='FFC000', fill_type='solid')
+    
+    # Get valid codes for each column that has choices
+    valid_codes_map = {}
+    for col in df.columns:
+        if col in choices_map:
+            valid_codes_map[col] = set(choices_map[col].values())
+            
+    if not valid_codes_map:
+        return
+
+    # Iterate through the dataframe to find invalid values
+    # Note: DataFrame rows are 0-indexed, Excel rows are 1-indexed.
+    # Header is usually row 1 in Excel. Data starts at row 2.
+    # So df row i -> Excel row i + 2
+    
+    # Iterate over columns by name to get their index in the dataframe
+    for col_idx, col_name in enumerate(df.columns):
+        if col_name in valid_codes_map:
+            valid_codes = valid_codes_map[col_name]
+            
+            # Iterate over rows
+            for row_idx, value in enumerate(df[col_name]):
+                if pd.isna(value) or value == '':
+                    continue
+                    
+                value_str = str(value).strip()
+                
+                # Check if value is a valid code
+                if value_str not in valid_codes:
+                    # Highlight the cell
+                    # Excel row: row_idx + 2 (1 for 0-based, +1 for header)
+                    # Excel col: col_idx + 1 (1-based)
+                    cell = worksheet.cell(row=row_idx + 2, column=col_idx + 1)
+                    cell.fill = orange_fill
 
 
 def generate_uuid():
@@ -570,13 +617,21 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
         # Main sheet
         df_main.to_excel(writer, sheet_name='data', index=False)
         
+        # Apply highlighting to main sheet
+        if mapping and 'choices' in mapping:
+             highlight_unmatched_cells(writer.sheets['data'], df_main, mapping['choices'])
+        
         # Repeat group sheets
         if df_focal_points is not None and len(df_focal_points) > 0:
             df_focal_points.to_excel(writer, sheet_name='FOCAL_POINTS', index=False)
+            if mapping and 'choices' in mapping:
+                highlight_unmatched_cells(writer.sheets['FOCAL_POINTS'], df_focal_points, mapping['choices'])
             print(f"  ✓ FOCAL_POINTS: {len(df_focal_points)} rows")
         
         if df_figures_community is not None and len(df_figures_community) > 0:
             df_figures_community.to_excel(writer, sheet_name='FIGURES_COMMUNITY', index=False)
+            if mapping and 'choices' in mapping:
+                highlight_unmatched_cells(writer.sheets['FIGURES_COMMUNITY'], df_figures_community, mapping['choices'])
             print(f"  ✓ FIGURES_COMMUNITY: {len(df_figures_community)} rows")
     
     print(f"✓ Successfully transformed {len(df_main)} main records")
