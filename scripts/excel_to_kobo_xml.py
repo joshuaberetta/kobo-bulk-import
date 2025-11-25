@@ -271,8 +271,16 @@ class ExcelToKoboXML:
             uuid: Current submission UUID for validation tracking
             
         Returns:
-            The leaf element that was created or found
+            The leaf element that was created or found, or None if value is empty
         """
+        # Convert label to name if needed, track validation for parish/community
+        track_validation = field_name in ('parish', 'community') if field_name else False
+        converted_value = self._convert_label_to_name(field_name, value, track_validation=track_validation, current_uuid=uuid) if field_name else value
+        
+        # Skip creating element if value is empty (NaN/None)
+        if pd.isna(converted_value):
+            return None
+        
         parts = path.split('/')
         current = parent
         
@@ -287,20 +295,12 @@ class ExcelToKoboXML:
                 new_elem = ET.SubElement(current, part)
                 current = new_elem
         
-        # Convert label to name if needed, track validation for parish/community
-        track_validation = field_name in ('parish', 'community') if field_name else False
-        converted_value = self._convert_label_to_name(field_name, value, track_validation=track_validation, current_uuid=uuid) if field_name else value
-        
         # Set the value on the leaf element
-        if pd.notna(converted_value):
-            # Convert value to string, handling different types
-            if isinstance(converted_value, (int, float)):
-                current.text = str(int(converted_value) if isinstance(converted_value, float) and converted_value.is_integer() else converted_value)
-            else:
-                current.text = str(converted_value)
+        # Convert value to string, handling different types
+        if isinstance(converted_value, (int, float)):
+            current.text = str(int(converted_value) if isinstance(converted_value, float) and converted_value.is_integer() else converted_value)
         else:
-            # Empty element for NaN/None values
-            current.text = ""
+            current.text = str(converted_value)
             
         return current
     

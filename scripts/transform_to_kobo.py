@@ -17,6 +17,144 @@ from datetime import datetime
 import os
 import sys
 import argparse
+import json
+import requests
+import tempfile
+from collections import Counter
+from generate_mapping import generate_mapping
+
+
+def load_config():
+    """Load configuration from config/config.json."""
+    # Determine path to config file relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(os.path.dirname(script_dir), 'config', 'config.json')
+    
+    if not os.path.exists(config_path):
+        print(f"Warning: Config file not found at {config_path}")
+        return {}
+        
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading config file: {e}")
+        return {}
+
+
+def fetch_form_mapping(config):
+    """
+    Fetch form content from Kobo API and generate mapping.
+    
+    Args:
+        config (dict): Configuration dictionary containing token, form-id, etc.
+        
+    Returns:
+        dict: Generated mapping with 'fields' and 'choices'
+    """
+    token = config.get('token')
+    form_id = config.get('form-id')
+    kf_server = config.get('kf-server', 'https://kf.kobotoolbox.org')
+    
+    # Handle server URL if only 'server' (KC) is provided
+    if not kf_server and config.get('server'):
+        kf_server = config.get('server').replace('kc.kobotoolbox.org', 'kf.kobotoolbox.org')
+    
+    if not token or not form_id:
+        print("Warning: Cannot fetch form mapping - missing 'token' or 'form-id' in config")
+        return None
+        
+    print(f"Fetching form structure from API for form: {form_id}")
+    
+    try:
+        # Fetch the asset JSON from Kobo API
+        asset_url = f"{kf_server}/api/v2/assets/{form_id}.json"
+        
+        response = requests.get(
+            asset_url,
+            headers={'Authorization': f'Token {token}'},
+            timeout=30
+        )
+        
+        if response.status_code != 200:
+            print(f"Error fetching asset: HTTP {response.status_code}")
+            return None
+            
+        asset_data = response.json()
+        
+        if 'content' not in asset_data:
+            print("Error: No 'content' key found in asset response")
+            return None
+            
+        # Save content to temporary file for generate_mapping
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+            json.dump(asset_data['content'], tmp)
+            tmp_path = tmp.name
+            
+        try:
+            # Generate mapping
+            print("Generating mapping from form content...")
+            # We use a temp file for output too, though we just want the return value
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp_out:
+                tmp_out_path = tmp_out.name
+                
+            mapping = generate_mapping(tmp_path, tmp_out_path)
+            
+            # Clean up temp files
+            os.unlink(tmp_path)
+            os.unlink(tmp_out_path)
+            
+            return mapping
+            
+        except Exception as e:
+            print(f"Error generating mapping: {e}")
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            return None
+            
+    except Exception as e:
+        print(f"Error connecting to Kobo API: {e}")
+        return None
+
+
+def convert_value(field_name, value, choices_map, validation_issues):
+    """
+    Convert a label to its corresponding code using the choices map.
+    
+    Args:
+        field_name (str): Name of the field being converted
+        value (any): The value to convert
+        choices_map (dict): Dictionary mapping labels to codes
+        validation_issues (dict): Dictionary to collect unmatched values
+        
+    Returns:
+        str: The converted code or original value
+    """
+    if pd.isna(value) or value == '':
+        return value
+        
+    value_str = str(value).strip()
+    
+    # 1. Check if value is already a code (value in mapping values)
+    if value_str in choices_map.values():
+        return value_str
+        
+    # 2. Check exact label match
+    if value_str in choices_map:
+        return choices_map[value_str]
+        
+    # 3. Check case-insensitive label match
+    value_lower = value_str.lower()
+    for label, code in choices_map.items():
+        if label.lower() == value_lower:
+            return code
+            
+    # 4. No match found - record validation issue
+    if field_name not in validation_issues:
+        validation_issues[field_name] = []
+    validation_issues[field_name].append(value_str)
+    
+    return value
 
 
 def generate_uuid():
@@ -164,7 +302,7 @@ def process_repeat_groups(df_raw, df_main, group_to_uuid_map):
     ]
     
     # Grouping fields to determine which submission a row belongs to
-    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'activity_type', 'start_date', 'end_date']
+    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'ImplementingOrganization_name', 'ImplementingOrganization_name_2', 'activity_type', 'start_date', 'end_date']
     
     # Filter to only available grouping fields in raw data
     available_grouping_fields = [field for field in grouping_fields if field in df_raw.columns]
@@ -283,6 +421,25 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     
     print(f"Read {len(df)} rows from raw data file")
     
+    # Load config and fetch mapping
+    config = load_config()
+    mapping = fetch_form_mapping(config)
+    
+    # Apply mapping if available
+    validation_issues = {}
+    if mapping and 'choices' in mapping:
+        print("Applying label-to-code mapping...")
+        choices = mapping['choices']
+        
+        # Iterate over columns in df
+        for col in df.columns:
+            if col in choices:
+                # Apply conversion
+                # We use a list comprehension or apply, but need to be careful with modifying the series
+                df[col] = df[col].apply(
+                    lambda x: convert_value(col, x, choices[col], validation_issues)
+                )
+    
     # Define the columns needed for Kobo import (excluding _submission__uuid which we'll add)
     # These are the main submission columns (not in repeat groups)
     kobo_columns = [
@@ -339,7 +496,7 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     
     # Group rows by combination of key fields
     # Fields that define a unique submission:
-    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'activity_type', 'start_date', 'end_date']
+    grouping_fields = ['LeadOrganization_name', 'LeadOrganization_name_2', 'ImplementingOrganization_name', 'ImplementingOrganization_name_2', 'activity_type', 'start_date', 'end_date']
     
     # Filter grouping fields to only those that exist in the dataframe
     available_grouping_fields = [field for field in grouping_fields if field in df_kobo.columns]
@@ -408,6 +565,24 @@ def transform_to_kobo_format(input_file, output_file=None, sheet_name='Data Entr
     
     print(f"✓ Successfully transformed {len(df_main)} main records")
     print(f"✓ Output file: {output_file}")
+    
+    # Print validation summary
+    if validation_issues:
+        print("\n" + "="*60)
+        print("⚠️  VALIDATION WARNINGS: UNMATCHED VALUES")
+        print("="*60)
+        print("The following values could not be mapped to Kobo codes:")
+        
+        for field, values in validation_issues.items():
+            print(f"\nField: '{field}'")
+            counts = Counter(values)
+            for val, count in counts.most_common(10):
+                print(f"  - '{val}': {count} occurrences")
+            if len(counts) > 10:
+                print(f"  ... and {len(counts) - 10} more unique values")
+                
+        print("\nThese values were kept as-is in the output file.")
+        print("="*60 + "\n")
     
     return output_file
 
